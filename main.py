@@ -3,12 +3,11 @@ import json
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from nba_api.stats.static import players
 from nba_api.stats.endpoints import playercareerstats
 
 app = FastAPI()
-
-from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +64,14 @@ def find_player(name):
     return matches[0] if matches else None
 
 
+STAT_COLUMNS = [
+    "SEASON_ID", "TEAM_ABBREVIATION", "GP",
+    "PTS", "REB", "AST", "STL", "BLK",
+    "FGA", "FTA",
+    "FG_PCT", "FG3_PCT", "FT_PCT"
+]
+
+
 @app.get("/player/{name}")
 def get_player_stats(name: str):
     cached = get_cached(name)
@@ -77,11 +84,30 @@ def get_player_stats(name: str):
 
     career = playercareerstats.PlayerCareerStats(player_id=player["id"], timeout=60)
     df = career.get_data_frames()[0]
-    stats = df[["SEASON_ID", "TEAM_ABBREVIATION", "GP", "PTS", "REB", "AST"]].tail(5)
+    latest = df[STAT_COLUMNS].tail(1).iloc[0]
+
+    gp = latest["GP"] if latest["GP"] > 0 else 1  # avoid divide-by-zero
+
+    pts = latest["PTS"]
+    fga = latest["FGA"]
+    fta = latest["FTA"]
+    ts_denominator = 2 * (fga + 0.44 * fta)
+    ts_pct = round((pts / ts_denominator) * 100, 1) if ts_denominator > 0 else None
 
     result = {
         "player": player["full_name"],
-        "seasons": stats.to_dict(orient="records")
+        "season": latest["SEASON_ID"],
+        "team": latest["TEAM_ABBREVIATION"],
+        "games_played": int(latest["GP"]),
+        "ppg": round(pts / gp, 1),
+        "rpg": round(latest["REB"] / gp, 1),
+        "apg": round(latest["AST"] / gp, 1),
+        "spg": round(latest["STL"] / gp, 1),
+        "bpg": round(latest["BLK"] / gp, 1),
+        "fg_pct": round(latest["FG_PCT"] * 100, 1),
+        "fg3_pct": round(latest["FG3_PCT"] * 100, 1),
+        "ft_pct": round(latest["FT_PCT"] * 100, 1),
+        "ts_pct": ts_pct,
     }
     save_cache(name, result)
     return {**result, "source": "api"}

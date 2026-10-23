@@ -4,14 +4,71 @@
   <meta charset="UTF-8">
   <title>NBA Player Compare</title>
   <style>
-    body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
-    .inputs { display: flex; gap: 10px; margin-bottom: 20px; }
-    input { flex: 1; padding: 8px; font-size: 16px; }
-    button { padding: 8px 16px; font-size: 16px; cursor: pointer; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-    th { background: #f0f0f0; }
-    .error { color: red; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 720px;
+      margin: 60px auto;
+      padding: 0 20px;
+      color: #1a1a1a;
+    }
+    h1 {
+      font-size: 28px;
+      margin-bottom: 24px;
+    }
+    .inputs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    input {
+      flex: 1;
+      padding: 10px 12px;
+      font-size: 15px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+    input:focus {
+      outline: none;
+      border-color: #999;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      background: #1a1a1a;
+      color: white;
+    }
+    button:hover { background: #333; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 15px;
+    }
+    th, td {
+      padding: 12px 14px;
+      text-align: center;
+    }
+    th {
+      font-weight: 600;
+      border-bottom: 2px solid #1a1a1a;
+    }
+    td:first-child, th:first-child {
+      text-align: left;
+      color: #666;
+      font-weight: 500;
+    }
+    tr:not(:last-child) td {
+      border-bottom: 1px solid #eee;
+    }
+    .better { color: #1a9e4f; font-weight: 600; }
+    .worse { color: #d93838; font-weight: 600; }
+    .meta { color: #888; font-size: 13px; margin-top: 6px; }
+    .error { color: #d93838; margin-top: 16px; }
+    .loading { color: #888; margin-top: 16px; }
   </style>
 </head>
 <body>
@@ -39,32 +96,58 @@
       const name1 = document.getElementById("player1").value.trim();
       const name2 = document.getElementById("player2").value.trim();
       const resultDiv = document.getElementById("result");
-      resultDiv.innerHTML = "Loading...";
+
+      if (!name1 || !name2) {
+        resultDiv.innerHTML = `<p class="error">Enter both player names.</p>`;
+        return;
+      }
+
+      resultDiv.innerHTML = `<p class="loading">Loading...</p>`;
 
       try {
-        const [data1, data2] = await Promise.all([
-          fetchPlayer(name1),
-          fetchPlayer(name2)
-        ]);
-        renderComparison(data1, data2);
+        const [a, b] = await Promise.all([fetchPlayer(name1), fetchPlayer(name2)]);
+        renderComparison(a, b);
       } catch (e) {
         resultDiv.innerHTML = `<p class="error">${e.message}</p>`;
       }
     }
 
-    function renderComparison(data1, data2) {
-      const latest1 = data1.seasons[data1.seasons.length - 1];
-      const latest2 = data2.seasons[data2.seasons.length - 1];
+    // Returns {aClass, bClass} — "better"/"worse"/"" based on which value is higher
+    function compareCells(aVal, bVal) {
+      if (aVal === bVal) return { aClass: "", bClass: "" };
+      return aVal > bVal
+        ? { aClass: "better", bClass: "worse" }
+        : { aClass: "worse", bClass: "better" };
+    }
 
+    function statRow(label, aVal, bVal, suffix = "") {
+      const { aClass, bClass } = compareCells(aVal, bVal);
+      return `
+        <tr>
+          <td>${label}</td>
+          <td class="${aClass}">${aVal}${suffix}</td>
+          <td class="${bClass}">${bVal}${suffix}</td>
+        </tr>`;
+    }
+
+    function renderComparison(a, b) {
       document.getElementById("result").innerHTML = `
         <table>
-          <tr><th></th><th>${data1.player}</th><th>${data2.player}</th></tr>
-          <tr><td>Season</td><td>${latest1.SEASON_ID}</td><td>${latest2.SEASON_ID}</td></tr>
-          <tr><td>Games Played</td><td>${latest1.GP}</td><td>${latest2.GP}</td></tr>
-          <tr><td>Points</td><td>${latest1.PTS}</td><td>${latest2.PTS}</td></tr>
-          <tr><td>Rebounds</td><td>${latest1.REB}</td><td>${latest2.REB}</td></tr>
-          <tr><td>Assists</td><td>${latest1.AST}</td><td>${latest2.AST}</td></tr>
+          <tr><th></th><th>${a.player}</th><th>${b.player}</th></tr>
+          ${statRow("Points / game", a.ppg, b.ppg)}
+          ${statRow("Rebounds / game", a.rpg, b.rpg)}
+          ${statRow("Assists / game", a.apg, b.apg)}
+          ${statRow("Steals / game", a.spg, b.spg)}
+          ${statRow("Blocks / game", a.bpg, b.bpg)}
+          ${statRow("FG%", a.fg_pct, b.fg_pct, "%")}
+          ${statRow("3PT%", a.fg3_pct, b.fg3_pct, "%")}
+          ${statRow("FT%", a.ft_pct, b.ft_pct, "%")}
+          ${statRow("True Shooting %", a.ts_pct, b.ts_pct, "%")}
         </table>
+        <div class="meta">
+          ${a.player}: ${a.season} season, ${a.team}, ${a.games_played} GP &nbsp;·&nbsp;
+          ${b.player}: ${b.season} season, ${b.team}, ${b.games_played} GP
+        </div>
       `;
     }
   </script>
