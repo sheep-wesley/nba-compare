@@ -8,6 +8,15 @@ from nba_api.stats.endpoints import playercareerstats
 
 app = FastAPI()
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # fine for local dev, tighten later for production
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 DB_PATH = "cache.db"
 
 
