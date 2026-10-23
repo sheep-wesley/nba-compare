@@ -13,5 +13,5 @@ career = playercareerstats.PlayerCareerStats(player_id=player["id"], timeout=60)
 df = career.get_data_frames()[0]  # regular season, one row per season
 
 print(player["full_name"])
-print(df.columns)
-#print(df[["SEASON_ID", "TEAM_ABBREVIATION", "GP", "PTS", "REB", "AST"]].tail(5))
+#print(df.columns) stats could be used
+print(df[["SEASON_ID", "TEAM_ABBREVIATION", "GP", "PTS", "REB", "AST"]].tail(5))
