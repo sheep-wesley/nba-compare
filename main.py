@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import time
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -16,6 +17,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+NBA_HEADERS = {
+    'Host': 'stats.nba.com',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'x-nba-stats-origin': 'stats',
+    'x-nba-stats-token': 'true',
+    'Connection': 'keep-alive',
+    'Referer': 'https://www.nba.com/',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-Mode': 'cors',
+}
 
 DB_PATH = "cache.db"
 
@@ -102,8 +117,25 @@ def compute_stats(row):
     }
 
 
+def fetch_career_stats(player_id, max_attempts=3):
+    """Try the NBA API a few times before giving up, since stats.nba.com can be flaky."""
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            return playercareerstats.PlayerCareerStats(
+                player_id=player_id,
+                timeout=20,
+                headers=NBA_HEADERS
+            )
+        except Exception as e:
+            last_error = e
+            if attempt < max_attempts - 1:
+                time.sleep(2)
+    raise last_error
+
+
 def get_career_data(name):
-    """Returns {"player": full_name, "seasons": [raw season rows]}, from cache or API."""
+    """Returns ({"player": full_name, "seasons": [raw season rows]}, source), from cache or API."""
     cached = get_cached(name)
     if cached is not None:
         return cached, "cache"
@@ -112,7 +144,14 @@ def get_career_data(name):
     if player is None:
         raise HTTPException(status_code=404, detail=f"Player '{name}' not found")
 
-    career = playercareerstats.PlayerCareerStats(player_id=player["id"], timeout=60)
+    try:
+        career = fetch_career_stats(player["id"])
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="NBA stats source is temporarily unavailable. Please try again in a few minutes."
+        )
+
     df = career.get_data_frames()[0]
 
     if df.empty:
