@@ -12,15 +12,8 @@
       padding: 0 20px;
       color: #1a1a1a;
     }
-    h1 {
-      font-size: 28px;
-      margin-bottom: 24px;
-    }
-    .inputs {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 24px;
-    }
+    h1 { font-size: 28px; margin-bottom: 24px; }
+    .inputs { display: flex; gap: 10px; margin-bottom: 12px; }
     input {
       flex: 1;
       padding: 10px 12px;
@@ -28,10 +21,7 @@
       border: 1px solid #ddd;
       border-radius: 6px;
     }
-    input:focus {
-      outline: none;
-      border-color: #999;
-    }
+    input:focus { outline: none; border-color: #999; }
     button {
       padding: 10px 20px;
       font-size: 15px;
@@ -43,27 +33,30 @@
       color: white;
     }
     button:hover { background: #333; }
-    table {
+    .seasons {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      font-size: 13px;
+    }
+    .seasons > div { flex: 1; display: none; }
+    .seasons label { color: #888; display: block; margin-bottom: 4px; }
+    .seasons select {
       width: 100%;
-      border-collapse: collapse;
-      font-size: 15px;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
     }
-    th, td {
-      padding: 12px 14px;
-      text-align: center;
-    }
-    th {
-      font-weight: 600;
-      border-bottom: 2px solid #1a1a1a;
-    }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    th, td { padding: 12px 14px; text-align: center; }
+    th { font-weight: 600; border-bottom: 2px solid #1a1a1a; }
     td:first-child, th:first-child {
       text-align: left;
       color: #666;
       font-weight: 500;
     }
-    tr:not(:last-child) td {
-      border-bottom: 1px solid #eee;
-    }
+    tr:not(:last-child) td { border-bottom: 1px solid #eee; }
     .better { color: #1a9e4f; font-weight: 600; }
     .worse { color: #d93838; font-weight: 600; }
     .meta { color: #888; font-size: 13px; margin-top: 6px; }
@@ -73,18 +66,61 @@
 </head>
 <body>
   <h1>NBA Player Compare</h1>
+
   <div class="inputs">
-    <input id="player1" placeholder="Player 1 (e.g. LeBron James)">
-    <input id="player2" placeholder="Player 2 (e.g. Stephen Curry)">
+    <input id="player1" list="list1" placeholder="Player 1 (e.g. LeBron James)" autocomplete="off">
+    <datalist id="list1"></datalist>
+
+    <input id="player2" list="list2" placeholder="Player 2 (e.g. Stephen Curry)" autocomplete="off">
+    <datalist id="list2"></datalist>
+
     <button onclick="compare()">Compare</button>
   </div>
+
+  <div class="seasons">
+    <div id="seasonWrap1">
+      <label id="seasonLabel1"></label>
+      <select id="season1" onchange="onSeasonChange(1)"></select>
+    </div>
+    <div id="seasonWrap2">
+      <label id="seasonLabel2"></label>
+      <select id="season2" onchange="onSeasonChange(2)"></select>
+    </div>
+  </div>
+
   <div id="result"></div>
 
   <script>
     const API_BASE = "http://127.0.0.1:8000";
+    let latestData = { 1: null, 2: null };
+    let searchTimers = { 1: null, 2: null };
 
-    async function fetchPlayer(name) {
-      const res = await fetch(`${API_BASE}/player/${encodeURIComponent(name)}`);
+    // --- Autocomplete ---
+    document.getElementById("player1").addEventListener("input", () => handleSearch(1));
+    document.getElementById("player2").addEventListener("input", () => handleSearch(2));
+
+    function handleSearch(slot) {
+      clearTimeout(searchTimers[slot]);
+      searchTimers[slot] = setTimeout(async () => {
+        const value = document.getElementById(`player${slot}`).value.trim();
+        if (value.length < 2) return;
+        try {
+          const res = await fetch(`${API_BASE}/players/search?q=${encodeURIComponent(value)}`);
+          const data = await res.json();
+          const datalist = document.getElementById(`list${slot}`);
+          datalist.innerHTML = data.results.map(name => `<option value="${name}">`).join("");
+        } catch (e) {
+          // silently ignore search errors, not critical
+        }
+      }, 200); // debounce
+    }
+
+    // --- Fetching player stats ---
+    async function fetchPlayer(name, season = null) {
+      const params = new URLSearchParams();
+      if (season) params.set("season", season);
+      const url = `${API_BASE}/player/${encodeURIComponent(name)}${params.toString() ? "?" + params : ""}`;
+      const res = await fetch(url);
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.detail || "Request failed");
@@ -106,13 +142,44 @@
 
       try {
         const [a, b] = await Promise.all([fetchPlayer(name1), fetchPlayer(name2)]);
+        latestData[1] = a;
+        latestData[2] = b;
+        setupSeasonDropdown(1, a);
+        setupSeasonDropdown(2, b);
         renderComparison(a, b);
       } catch (e) {
         resultDiv.innerHTML = `<p class="error">${e.message}</p>`;
       }
     }
 
-    // Returns {aClass, bClass} — "better"/"worse"/"" based on which value is higher
+    function setupSeasonDropdown(slot, data) {
+      const wrap = document.getElementById(`seasonWrap${slot}`);
+      const label = document.getElementById(`seasonLabel${slot}`);
+      const select = document.getElementById(`season${slot}`);
+
+      label.textContent = data.player;
+      // Most recent season first
+      const seasons = [...data.available_seasons].reverse();
+      select.innerHTML = seasons.map(s =>
+        `<option value="${s}" ${s === data.season ? "selected" : ""}>${s}</option>`
+      ).join("");
+      wrap.style.display = "block";
+    }
+
+    async function onSeasonChange(slot) {
+      const select = document.getElementById(`season${slot}`);
+      const name = latestData[slot].player;
+      const season = select.value;
+
+      try {
+        const updated = await fetchPlayer(name, season);
+        latestData[slot] = updated;
+        renderComparison(latestData[1], latestData[2]);
+      } catch (e) {
+        document.getElementById("result").innerHTML = `<p class="error">${e.message}</p>`;
+      }
+    }
+
     function compareCells(aVal, bVal) {
       if (aVal === bVal) return { aClass: "", bClass: "" };
       return aVal > bVal
