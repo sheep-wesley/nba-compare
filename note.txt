@@ -1,0 +1,4 @@
+Terminal 1 : uvicorn main:app --reload
+Terminal 2 : cd ~/nba-compare/frontend
+python -m http.server 5500
+Terminal 3 : run command
